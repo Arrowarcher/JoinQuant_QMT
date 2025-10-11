@@ -90,10 +90,12 @@ def initialize(context):
     
     # 设置通知配置
     if NOTIFICATION_AVAILABLE and NOTIFICATION_CONFIG['enabled']:
-        # 邮件配置
-        set_email_config(NOTIFICATION_CONFIG['email_config'])
+        # 直接将整个配置存储到全局变量g中
+        g.notification_config = NOTIFICATION_CONFIG
         
         log.info(f"ETF多账户子策略通知配置设置完成 - 格式: {NOTIFICATION_CONFIG['notification_format']}")
+        log.info(f"邮件配置: {NOTIFICATION_CONFIG['email_config']['sender_email']}")
+        log.info(f"收件人数量: {len(NOTIFICATION_CONFIG['email_config']['recipients'])}")
     
     # 初始化通知相关变量
     g.last_notification_date = None
@@ -129,7 +131,8 @@ def strategy_trade(context):
     has_trades = (len(g.daily_trading_summary['global_strategy']['trades']) > 0 or 
                   len(g.daily_trading_summary['momentum_strategy']['trades']) > 0)
     
-    if NOTIFICATION_AVAILABLE and NOTIFICATION_CONFIG['enabled'] and NOTIFICATION_CONFIG['trading_notification'] and has_trades:
+    config = getattr(g, 'notification_config', {})
+    if NOTIFICATION_AVAILABLE and config.get('enabled', False) and config.get('trading_notification', False) and has_trades:
         send_etf_trading_notification(context, strategy_datetime)
     elif has_trades:
         log.info("有交易但通知功能未启用")
@@ -148,7 +151,8 @@ def after_market_close(context):
         strategy.after_market_close(context)
     
     # 发送收盘后通知
-    if NOTIFICATION_AVAILABLE and NOTIFICATION_CONFIG['enabled'] and NOTIFICATION_CONFIG['daily_summary']:
+    config = getattr(g, 'notification_config', {})
+    if NOTIFICATION_AVAILABLE and config.get('enabled', False) and config.get('daily_summary', False):
         send_daily_summary_notification(context)
 
 
@@ -631,11 +635,12 @@ def send_etf_trading_notification(context, strategy_datetime):
     send_message(markdown_content)  # 聚宽内置通知
     
     # 发送统一格式通知
+    config = getattr(g, 'notification_config', {})
     send_unified_notification(
         content=markdown_content,
         subject="ETF多账户子策略 - 交易信号",
         title="ETF交易信号",
-        format_type=NOTIFICATION_CONFIG['notification_format'],
+        format_type=config.get('notification_format', 'markdown'),
         context=context
     )
     
@@ -735,11 +740,12 @@ def send_daily_summary_notification(context):
     send_message(markdown_content)  # 聚宽内置通知
     
     # 发送统一格式通知
+    config = getattr(g, 'notification_config', {})
     send_unified_notification(
         content=markdown_content,
         subject="ETF多账户子策略 - 每日摘要",
         title="ETF每日摘要",
-        format_type=NOTIFICATION_CONFIG['notification_format'],
+        format_type=config.get('notification_format', 'markdown'),
         context=context
     )
     

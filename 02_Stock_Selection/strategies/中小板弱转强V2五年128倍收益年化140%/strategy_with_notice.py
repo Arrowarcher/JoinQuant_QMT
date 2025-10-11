@@ -90,10 +90,12 @@ def initialize(context):
     
     # 设置通知配置
     if NOTIFICATION_AVAILABLE and NOTIFICATION_CONFIG['enabled']:
-        # 邮件配置
-        set_email_config(NOTIFICATION_CONFIG['email_config'])
+        # 直接将整个配置存储到全局变量g中
+        g.notification_config = NOTIFICATION_CONFIG
         
         log.info(f"中小板弱转强策略通知配置设置完成 - 格式: {NOTIFICATION_CONFIG['notification_format']}")
+        log.info(f"邮件配置: {NOTIFICATION_CONFIG['email_config']['sender_email']}")
+        log.info(f"收件人数量: {len(NOTIFICATION_CONFIG['email_config']['recipients'])}")
     
 def perpare(context):#筛选
     # 检查是否在1、4、12月空仓期
@@ -768,7 +770,9 @@ def send_trading_notification(context):
     """
     发送本次操作汇总通知 - 使用 notified 字段区分当前操作和历史操作
     """
-    if not NOTIFICATION_AVAILABLE or not NOTIFICATION_CONFIG['enabled'] or not NOTIFICATION_CONFIG['trading_notification']:
+    config = getattr(g, 'notification_config', {})
+    if not NOTIFICATION_AVAILABLE or not config.get('enabled', False) or not config.get('trading_notification', False):
+        log.warning("通知配置验证失败，跳过交易通知")
         return
     
     # 获取未通知的交易记录
@@ -845,11 +849,12 @@ def send_trading_notification(context):
     
     # 发送统一格式通知
     operation_type = "买入" if buy_count > 0 else "卖出"
+    config = getattr(g, 'notification_config', {})
     send_unified_notification(
         content=markdown_content,
         subject=f"{operation_type}操作通知 - {len(unnotified_trades)}只股票",
         title="交易操作通知",
-        format_type=NOTIFICATION_CONFIG['notification_format'],
+        format_type=config.get('notification_format', 'markdown'),
         context=context
     )
     
@@ -1253,8 +1258,10 @@ def send_daily_summary(context):
     """
     发送每日摘要通知
     """
-    if not NOTIFICATION_AVAILABLE or not NOTIFICATION_CONFIG['enabled'] or not NOTIFICATION_CONFIG['daily_summary']:
+    config = getattr(g, 'notification_config', {})
+    if not NOTIFICATION_AVAILABLE or not config.get('enabled', False) or not config.get('daily_summary', False):
         # 即使不发送通知，也要清理数据
+        log.warning("通知配置验证失败，跳过每日摘要")
         cleanup_daily_data(context)
         return
     
@@ -1339,11 +1346,12 @@ def send_daily_summary(context):
     send_message(markdown_content)  # 聚宽内置通知
     
     # 发送统一格式通知
+    config = getattr(g, 'notification_config', {})
     send_unified_notification(
         content=markdown_content,
         subject="中小板弱转强策略 - 每日摘要",
         title="每日摘要通知",
-        format_type=NOTIFICATION_CONFIG['notification_format'],
+        format_type=config.get('notification_format', 'markdown'),
         context=context
     )
     

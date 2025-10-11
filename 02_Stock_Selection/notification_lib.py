@@ -18,18 +18,18 @@
 
 配置示例：
 # 邮件配置
-set_email_config({
+{
     'smtp_server': 'smtp.qq.com',
     'smtp_port': 587,
     'sender_email': 'your_email@qq.com',
     'sender_password': 'your_app_password',
     'recipients': ['recipient@example.com']
-})
+}
 
 # 微信配置
-set_wechat_config({
+{
     'webhook_url': 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY'
-})
+}
 """
 
 # 聚宽API导入
@@ -56,19 +56,9 @@ class NotificationLib:
         """
         初始化通知库
         """
-        # 邮件配置
-        self.email_config = {
-            'smtp_server': 'smtp.qq.com',
-            'smtp_port': 587,
-            'sender_email': '',
-            'sender_password': '',
-            'recipients': []
-        }
-        
-        # 微信配置
-        self.wechat_config = {
-            'webhook_url': ''
-        }
+        # 配置将从全局变量g中动态加载
+        self.email_config = {}
+        self.wechat_config = {}
     
     def detect_environment(self, context=None):
         """
@@ -263,8 +253,9 @@ class NotificationLib:
         发送普通邮件通知 - 仅支持字符串
         """
         try:
-            if not self.email_config['sender_email'] or not self.email_config['recipients']:
-                log.warning("邮件配置不完整，跳过邮件发送")
+            # 每次都从全局变量g加载配置
+            if not self.load_config_from_g():
+                log.warning("无法从g.notification_config加载配置，跳过邮件发送")
                 return False
             
             # 检测环境并生成标题
@@ -299,8 +290,9 @@ class NotificationLib:
         发送普通微信通知 - 仅支持字符串
         """
         try:
-            if not self.wechat_config['webhook_url']:
-                log.warning("微信配置不完整，跳过微信发送")
+            # 每次都从全局变量g加载配置
+            if not self.load_config_from_g():
+                log.warning("无法从g.notification_config加载配置，跳过微信发送")
                 return False
             
             # 构建消息
@@ -348,8 +340,9 @@ class NotificationLib:
             total_return: 总收益率（数字）
         """
         try:
-            if not self.email_config['sender_email'] or not self.email_config['recipients']:
-                log.warning("邮件配置不完整，跳过HTML邮件发送")
+            # 每次都从全局变量g加载配置
+            if not self.load_config_from_g():
+                log.warning("无法从g.notification_config加载配置，跳过HTML邮件发送")
                 return False
             
             # 生成HTML内容
@@ -400,9 +393,9 @@ class NotificationLib:
             context: 聚宽上下文对象
         """
         try:
-            # 检查邮件配置
-            if not self.email_config['sender_email'] or not self.email_config['sender_password']:
-                log.warning("邮件配置不完整，跳过邮件发送")
+            # 每次都从全局变量g加载配置
+            if not self.load_config_from_g():
+                log.warning("无法从g.notification_config加载配置，跳过邮件发送")
                 return False
             
             # 创建邮件
@@ -576,19 +569,91 @@ class NotificationLib:
     
     # ==================== 配置方法 ====================
     
-    def set_email_config(self, email_config):
+    def load_config_from_g(self):
         """
-        设置邮件配置
+        从全局变量g中加载配置，并支持从本地文件合并收件人列表
         """
-        self.email_config.update(email_config)
-        log.info("邮件配置已更新")
+        try:
+            if hasattr(g, 'notification_config'):
+                config = g.notification_config.copy()  # 创建副本避免修改原配置
+                
+                # 处理邮件配置
+                if 'email_config' in config:
+                    self.email_config = config['email_config'].copy()
+                    
+                    # 尝试从本地文件读取收件人列表
+                    local_recipients = self._load_recipients_from_file()
+                    if local_recipients:
+                        # 合并全局配置和本地文件的收件人列表
+                        global_recipients = self.email_config.get('recipients', [])
+                        merged_recipients = list(set(global_recipients + local_recipients))
+                        self.email_config['recipients'] = merged_recipients
+                
+                # 处理微信配置
+                if 'wechat_config' in config:
+                    self.wechat_config = config['wechat_config']
+                    log.info("从g.notification_config加载微信配置")
+                
+                return True
+        except Exception as e:
+            log.warning(f"从全局变量g加载配置失败: {e}")
+        return False
     
-    def set_wechat_config(self, wechat_config):
+    def _load_recipients_from_file(self):
         """
-        设置微信配置
+        从本地文件recipients.json读取收件人列表
+        
+        Returns:
+            list: 收件人邮箱列表，如果文件不存在或读取失败返回空列表
         """
-        self.wechat_config.update(wechat_config)
-        log.info("微信配置已更新")
+        try:
+            import json
+            
+            # 尝试多个可能的文件路径（聚宽环境）
+            possible_paths = [
+                'recipients.json',
+                'config/recipients.json'
+            ]
+            
+            recipients = []
+            file_found = False
+            
+            for file_path in possible_paths:
+                try:
+                    # 使用聚宽的read_file函数读取文件
+                    content = read_file(file_path)
+                    if content:
+                        data = json.loads(content)
+                        
+                        # 支持多种数据格式
+                        if isinstance(data, list):
+                            recipients = data
+                        elif isinstance(data, dict) and 'recipients' in data:
+                            recipients = data['recipients']
+                        elif isinstance(data, dict) and 'emails' in data:
+                            recipients = data['emails']
+                        else:
+                            continue
+                            
+                        # 验证收件人列表格式
+                        if isinstance(recipients, list) and all(isinstance(email, str) and '@' in email for email in recipients):
+                            file_found = True
+                            log.info(f"从文件加载收件人列表: {file_path} ({len(recipients)}个)")
+                            break
+                        else:
+                            continue
+                            
+                except Exception as e:
+                    # 文件不存在或读取失败，继续尝试下一个路径
+                    continue
+            
+            if not file_found:
+                return []
+                
+            return recipients
+            
+        except Exception as e:
+            return []
     
 
 # 创建全局通知库实例
@@ -613,15 +678,6 @@ def send_wechat(message):
 def send_html_email(strategy_name, context=None, selected_stocks=None, buy_signals=None, sell_signals=None, positions=None, total_return=None):
     """发送HTML邮件通知 - 智能渲染函数，根据传入的数据自动判断要渲染哪些部分"""
     return notification_lib.send_html_email(strategy_name, context, selected_stocks, buy_signals, sell_signals, positions, total_return)
-
-# 配置函数
-def set_email_config(email_config):
-    """设置邮件配置"""
-    return notification_lib.set_email_config(email_config)
-
-def set_wechat_config(wechat_config):
-    """设置微信配置"""
-    return notification_lib.set_wechat_config(wechat_config)
 
 # Markdown相关函数
 def markdown_to_html(markdown_content: str, title: str = "文档") -> str:
